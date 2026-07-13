@@ -22,7 +22,8 @@ public class GatewayRoutesConfig {
                                     @Value("${aegis.routes.authorization-server:http://localhost:9000}") String authz,
                                     @Value("${aegis.routes.identity-service:http://localhost:9102}") String identity,
                                     @Value("${aegis.routes.tenant-service:http://localhost:9101}") String tenant,
-                                    @Value("${aegis.routes.social-broker:http://localhost:9105}") String social) {
+                                    @Value("${aegis.routes.social-broker:http://localhost:9105}") String social,
+                                    @Value("${aegis.routes.mfa:http://localhost:9103}") String mfa) {
         // Strip Origin before forwarding: the edge owns CORS (globalcors), so downstream services
         // must not add their own Access-Control-Allow-Origin (that would duplicate the header and the
         // browser would reject it).
@@ -35,9 +36,14 @@ public class GatewayRoutesConfig {
                 .route("identity-service", r -> r
                         .path("/api/v1/users/**", "/api/v1/users:authenticate", "/api/v1/groups/**",
                                 "/api/v1/onboarding", "/api/v1/signup", "/api/v1/signup-policy",
-                                "/api/v1/auth-policy", "/api/v1/branding", "/api/v1/branding/**")
+                                "/api/v1/auth-policy", "/api/v1/branding", "/api/v1/branding/**",
+                                "/api/v1/system-log")
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(identity))
+                .route("mfa-webauthn-service", r -> r
+                        .path("/api/v1/mfa/**")
+                        .filters(f -> f.removeRequestHeader("Origin"))
+                        .uri(mfa))
                 .route("tenant-service", r -> r
                         .path("/api/v1/tenants/**", "/api/v1/tenants:resolve")
                         .filters(f -> f.removeRequestHeader("Origin"))
