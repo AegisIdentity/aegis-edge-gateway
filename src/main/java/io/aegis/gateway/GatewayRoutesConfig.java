@@ -27,11 +27,12 @@ public class GatewayRoutesConfig {
         // browser would reject it).
         return builder.routes()
                 .route("authorization-server", r -> r
-                        .path("/oauth2/**", "/.well-known/**", "/login", "/connect/**", "/userinfo")
+                        .path("/oauth2/**", "/.well-known/**", "/login", "/connect/**", "/userinfo",
+                                "/api/v1/applications/**", "/api/v1/applications")
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(authz))
                 .route("identity-service", r -> r
-                        .path("/api/v1/users/**", "/api/v1/users:authenticate")
+                        .path("/api/v1/users/**", "/api/v1/users:authenticate", "/api/v1/groups/**")
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(identity))
                 .route("tenant-service", r -> r
