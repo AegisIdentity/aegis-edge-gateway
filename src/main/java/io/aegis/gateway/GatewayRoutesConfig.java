@@ -32,7 +32,8 @@ public class GatewayRoutesConfig {
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(authz))
                 .route("identity-service", r -> r
-                        .path("/api/v1/users/**", "/api/v1/users:authenticate", "/api/v1/groups/**")
+                        .path("/api/v1/users/**", "/api/v1/users:authenticate", "/api/v1/groups/**",
+                                "/api/v1/onboarding")
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(identity))
                 .route("tenant-service", r -> r
