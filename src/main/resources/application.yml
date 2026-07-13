@@ -26,6 +26,7 @@ aegis:
     authorization-server: ${AUTHZ_URI:http://localhost:9000}
     identity-service: ${IDENTITY_URI:http://localhost:9102}
     tenant-service: ${TENANT_URI:http://localhost:9101}
+    social-broker: ${SOCIAL_URI:http://localhost:9105}
 
 management:
   endpoints:

@@ -21,7 +21,8 @@ public class GatewayRoutesConfig {
     public RouteLocator aegisRoutes(RouteLocatorBuilder builder,
                                     @Value("${aegis.routes.authorization-server:http://localhost:9000}") String authz,
                                     @Value("${aegis.routes.identity-service:http://localhost:9102}") String identity,
-                                    @Value("${aegis.routes.tenant-service:http://localhost:9101}") String tenant) {
+                                    @Value("${aegis.routes.tenant-service:http://localhost:9101}") String tenant,
+                                    @Value("${aegis.routes.social-broker:http://localhost:9105}") String social) {
         // Strip Origin before forwarding: the edge owns CORS (globalcors), so downstream services
         // must not add their own Access-Control-Allow-Origin (that would duplicate the header and the
         // browser would reject it).
@@ -40,6 +41,10 @@ public class GatewayRoutesConfig {
                         .path("/api/v1/tenants/**", "/api/v1/tenants:resolve")
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(tenant))
+                .route("social-broker-service", r -> r
+                        .path("/api/v1/identity-providers/**", "/api/v1/identity-providers")
+                        .filters(f -> f.removeRequestHeader("Origin"))
+                        .uri(social))
                 .build();
     }
 }
