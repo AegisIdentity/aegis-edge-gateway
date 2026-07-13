@@ -1,0 +1,22 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: aegis-edge-gateway
+
+aegis:
+  routes:
+    authorization-server: ${AUTHZ_URI:http://localhost:9000}
+    identity-service: ${IDENTITY_URI:http://localhost:9102}
+    tenant-service: ${TENANT_URI:http://localhost:9101}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
