@@ -4,6 +4,22 @@ server:
 spring:
   application:
     name: aegis-edge-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          # CORS is owned by the edge (the single public entry point). Handles the browser preflight
+          # for every /api and /oauth2 call from the console; downstream services have Origin stripped
+          # (see GatewayRoutesConfig) so they do not add a second Access-Control-Allow-Origin header.
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowedOrigins:
+                  - ${AEGIS_CONSOLE_ORIGIN:http://localhost:3000}
+                allowedMethods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+                allowedHeaders: ["*"]
+                allowCredentials: false
+                maxAge: 3600
 
 aegis:
   routes:

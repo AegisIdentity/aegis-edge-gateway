@@ -22,15 +22,21 @@ public class GatewayRoutesConfig {
                                     @Value("${aegis.routes.authorization-server:http://localhost:9000}") String authz,
                                     @Value("${aegis.routes.identity-service:http://localhost:9102}") String identity,
                                     @Value("${aegis.routes.tenant-service:http://localhost:9101}") String tenant) {
+        // Strip Origin before forwarding: the edge owns CORS (globalcors), so downstream services
+        // must not add their own Access-Control-Allow-Origin (that would duplicate the header and the
+        // browser would reject it).
         return builder.routes()
                 .route("authorization-server", r -> r
                         .path("/oauth2/**", "/.well-known/**", "/login", "/connect/**", "/userinfo")
+                        .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(authz))
                 .route("identity-service", r -> r
                         .path("/api/v1/users/**", "/api/v1/users:authenticate")
+                        .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(identity))
                 .route("tenant-service", r -> r
                         .path("/api/v1/tenants/**", "/api/v1/tenants:resolve")
+                        .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(tenant))
                 .build();
     }
