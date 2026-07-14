@@ -10,6 +10,14 @@
 ## Non-negotiables
 - The edge must NEVER trust an inbound `X-Aegis-Tenant` header — always derive it (ARCHITECTURE.md §5.1).
 - The gateway routes/resolves; it does not authorize. Downstream services validate tokens + scopes.
+- **The gateway IS the public per-tenant issuer front-door**: `/{tenant}/oauth2/**`,
+  `/{tenant}/.well-known/**`, `/{tenant}/userinfo`, hosted-login paths and the tenant-app endpoints
+  route to the AS with `preserveHostHeader()`, so SAS reconstructs the issuer as
+  `http://<gateway-host>/{tenant}`. Do not remove `preserveHostHeader` — issuer URLs in every tenant's
+  integration (and the in-console docs) depend on it.
+- CORS is path-split in application.yml: tenant-app + per-tenant OAuth paths are permissive
+  (no-credentials, bearer/PKCE-based — CORS is not the auth boundary there); everything else stays
+  locked to the console origin. Specific entries MUST precede the `[/**]` catch-all (first match wins).
 
 ## Next steps
 Replace subdomain derivation with a cached `tenant-service` `/api/v1/tenants:resolve` lookup; add a

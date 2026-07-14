@@ -13,6 +13,21 @@ spring:
           # (see GatewayRoutesConfig) so they do not add a second Access-Control-Allow-Origin header.
           globalcors:
             cors-configurations:
+              # Tenant-app embedded auth + per-tenant OAuth endpoints are called from tenants' OWN web
+              # origins (which we cannot enumerate), so these paths get a permissive no-credentials
+              # policy: they are bearer/PKCE-code based (no cookies), so CORS is not the auth boundary.
+              # Entries are first-match — these MUST precede the '[/**]' catch-all.
+              '[/api/v1/webauthn/**]': &tenant-app-cors
+                allowedOriginPatterns: ["*"]
+                allowedMethods: [GET, POST, OPTIONS]
+                allowedHeaders: ["*"]
+                allowCredentials: false
+                maxAge: 3600
+              '[/api/v1/social/**]': *tenant-app-cors
+              '[/api/v1/oauth/interaction/**]': *tenant-app-cors
+              '[/*/oauth2/**]': *tenant-app-cors
+              '[/*/.well-known/**]': *tenant-app-cors
+              '[/*/userinfo]': *tenant-app-cors
               '[/**]':
                 allowedOrigins:
                   - ${AEGIS_CONSOLE_ORIGIN:http://localhost:3000}

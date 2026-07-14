@@ -30,10 +30,29 @@ public class GatewayRoutesConfig {
         // must not add their own Access-Control-Allow-Origin (that would duplicate the header and the
         // browser would reject it).
         return builder.routes()
+                // The AS reconstructs the issuer from the request Host (multipleIssuersAllowed), so
+                // preserveHostHeader makes tokens minted through the gateway carry the GATEWAY host as
+                // issuer (http://localhost:8080[/tenant]) — the gateway is the public issuer front-door.
+                // Direct :9000 traffic keeps the AS host as issuer; both are on the services' allowlist.
                 .route("authorization-server", r -> r
-                        .path("/oauth2/**", "/.well-known/**", "/login", "/connect/**", "/userinfo",
+                        .path("/oauth2/**", "/.well-known/**", "/login", "/login/**", "/connect/**",
+                                "/userinfo", "/logout", "/mfa", "/error", "/webjars/**", "/assets/**",
+                                "/favicon.ico", "/saml2/**",
                                 "/api/v1/applications/**", "/api/v1/applications")
-                        .filters(f -> f.removeRequestHeader("Origin"))
+                        .filters(f -> f.removeRequestHeader("Origin").preserveHostHeader())
+                        .uri(authz))
+                // Per-tenant issuer paths: /{tenant}/oauth2/*, /{tenant}/.well-known/*, /{tenant}/userinfo.
+                // This is what makes http://localhost:8080/{tenant} a fully working OIDC issuer.
+                .route("authorization-server-tenant-issuer", r -> r
+                        .path("/*/oauth2/**", "/*/.well-known/**", "/*/userinfo", "/*/connect/**")
+                        .filters(f -> f.removeRequestHeader("Origin").preserveHostHeader())
+                        .uri(authz))
+                // Tenant-app embedded auth (passkeys, native social, interaction-code exchange) — called
+                // from tenants' own web/mobile apps; CORS for these paths is permissive at the edge
+                // (bearer/PKCE-code based, no cookies — see application.yml globalcors).
+                .route("authorization-server-tenant-app", r -> r
+                        .path("/api/v1/webauthn/**", "/api/v1/social/**", "/api/v1/oauth/interaction/**")
+                        .filters(f -> f.removeRequestHeader("Origin").preserveHostHeader())
                         .uri(authz))
                 .route("identity-service", r -> r
                         .path("/api/v1/users/**", "/api/v1/users:authenticate", "/api/v1/groups/**",
