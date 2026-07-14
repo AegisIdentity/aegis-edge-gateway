@@ -23,7 +23,9 @@ public class GatewayRoutesConfig {
                                     @Value("${aegis.routes.identity-service:http://localhost:9102}") String identity,
                                     @Value("${aegis.routes.tenant-service:http://localhost:9101}") String tenant,
                                     @Value("${aegis.routes.social-broker:http://localhost:9105}") String social,
-                                    @Value("${aegis.routes.mfa:http://localhost:9103}") String mfa) {
+                                    @Value("${aegis.routes.mfa:http://localhost:9103}") String mfa,
+                                    @Value("${aegis.routes.admin-api:http://localhost:9107}") String adminApi,
+                                    @Value("${aegis.routes.scim:http://localhost:9106}") String scim) {
         // Strip Origin before forwarding: the edge owns CORS (globalcors), so downstream services
         // must not add their own Access-Control-Allow-Origin (that would duplicate the header and the
         // browser would reject it).
@@ -45,13 +47,22 @@ public class GatewayRoutesConfig {
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(mfa))
                 .route("tenant-service", r -> r
-                        .path("/api/v1/tenants/**", "/api/v1/tenants:resolve")
+                        .path("/api/v1/tenants/**", "/api/v1/tenants:resolve",
+                                "/api/v1/domains/**", "/api/v1/domains")
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(tenant))
                 .route("social-broker-service", r -> r
                         .path("/api/v1/identity-providers/**", "/api/v1/identity-providers")
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(social))
+                .route("admin-api-service", r -> r
+                        .path("/api/v1/admin/**")
+                        .filters(f -> f.removeRequestHeader("Origin"))
+                        .uri(adminApi))
+                .route("scim-provisioning-service", r -> r
+                        .path("/scim/v2/**", "/api/v1/provisioning/**")
+                        .filters(f -> f.removeRequestHeader("Origin"))
+                        .uri(scim))
                 .build();
     }
 }

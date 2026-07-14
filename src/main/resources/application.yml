@@ -28,6 +28,8 @@ aegis:
     tenant-service: ${TENANT_URI:http://localhost:9101}
     social-broker: ${SOCIAL_URI:http://localhost:9105}
     mfa: ${MFA_URI:http://localhost:9103}
+    admin-api: ${ADMIN_API_URI:http://localhost:9107}
+    scim: ${SCIM_URI:http://localhost:9106}
 
 management:
   endpoints:
