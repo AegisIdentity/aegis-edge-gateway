@@ -42,6 +42,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <!-- M-edge-3: Redis-backed RequestRateLimiter store (Lettuce, reactive). Connects lazily, so
+             the gateway boots without Redis; the rate-limit filter is only attached when
+             aegis.ratelimit.enabled=true (see GatewayRoutesConfig / RateLimitConfig). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

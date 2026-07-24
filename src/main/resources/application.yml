@@ -29,6 +29,11 @@ spring:
               '[/*/.well-known/**]': *tenant-app-cors
               '[/*/userinfo]': *tenant-app-cors
               '[/**]':
+                # L-edge-4: wildcard is NOT used here — this catch-all is locked to the console origin.
+                # The permissive '*' entries above are safe ONLY because allowCredentials=false holds
+                # platform-wide (bearer/PKCE, never cookies): CORS is not the auth boundary. If a
+                # cookie/session is ever introduced on any edge path, this no-credentials invariant and
+                # the '*' origin patterns must be revisited together.
                 allowedOrigins:
                   - ${AEGIS_CONSOLE_ORIGIN:http://localhost:3000}
                 allowedMethods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
@@ -37,7 +42,23 @@ spring:
                 maxAge: 3600
 
 aegis:
+  # M-edge-3: edge rate limiting for credential-facing routes. Disabled by default so local dev / the
+  # context-load test boot without Redis; enable in prod (needs the Redis store to be reachable).
+  ratelimit:
+    enabled: ${AEGIS_RATELIMIT_ENABLED:false}
+    replenish-rate: ${AEGIS_RATELIMIT_REPLENISH:10}   # sustained tokens/sec per (tenant,IP)
+    burst-capacity: ${AEGIS_RATELIMIT_BURST:20}       # max burst per (tenant,IP)
+    requested-tokens: ${AEGIS_RATELIMIT_TOKENS:1}
+  gateway:
+    # M-edge-4: allowed request hosts (exact host or a base domain whose subdomains are allowed, e.g.
+    # 'aegis.io' permits 'acme.aegis.io'). Empty = no enforcement (local dev / tests). Set in prod to
+    # the gateway's own hostnames + tenant domains so a forged Host cannot drive tenant/issuer resolution.
+    allowed-hosts: ${AEGIS_ALLOWED_HOSTS:}
+    # M-edge-5: strip inbound X-Forwarded-*/Forwarded at the edge (gateway is the first trusted hop).
+    strip-forwarded-headers: ${AEGIS_STRIP_FORWARDED:true}
   routes:
+    # L-edge-3: env-overridable downstream URIs. Prod should set https:// values and rely on
+    # service-mesh mTLS for the gateway->service hop; the http://localhost defaults are local-dev only.
     authorization-server: ${AUTHZ_URI:http://localhost:9000}
     identity-service: ${IDENTITY_URI:http://localhost:9102}
     tenant-service: ${TENANT_URI:http://localhost:9101}
@@ -55,3 +76,8 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    # The reactive Redis starter adds a health indicator; only ping Redis when rate limiting (and thus
+    # a reachable Redis) is expected, so /actuator/health stays UP in dev where no Redis runs.
+    redis:
+      enabled: ${AEGIS_RATELIMIT_ENABLED:false}
