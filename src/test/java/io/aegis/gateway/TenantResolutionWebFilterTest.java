@@ -106,4 +106,89 @@ class TenantResolutionWebFilterTest {
 
         assertThat(downstream[0]).isNotNull();
     }
+
+    // ---- filter driven WITH a resolver (the branch the stack actually runs) ----
+
+    /**
+     * A host with no derivable tenant must pass through cleanly. The resolver path returned null
+     * into {@code Mono.map}, which Reactor treats as a fatal NullPointerException — so EVERY request
+     * failed, including the actuator health probe, and the gateway never became healthy. The
+     * no-resolver tests could not see it because they never enter this branch.
+     */
+    @Test
+    void a_host_with_no_tenant_passes_through_when_a_resolver_is_configured() {
+        var resolver = new TenantResolver(
+                org.springframework.web.reactive.function.client.WebClient.create("http://unused"),
+                org.springframework.web.reactive.function.client.WebClient.create("http://unused"),
+                "id", "secret", java.time.Duration.ofMinutes(5), java.time.Duration.ofSeconds(30)) {
+            @Override
+            public reactor.core.publisher.Mono<java.util.Optional<String>> resolve(String host) {
+                return reactor.core.publisher.Mono.just(java.util.Optional.empty());
+            }
+        };
+        var filter = new TenantResolutionWebFilter(List.of(), true, providerOf(resolver));
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/actuator/health").header("Host", "localhost:8080"));
+
+        var captured = new java.util.concurrent.atomic.AtomicReference<ServerHttpRequest>();
+        filter.filter(exchange, ex -> {
+            captured.set(ex.getRequest());
+            return reactor.core.publisher.Mono.empty();
+        }).block();
+
+        assertThat(captured.get()).isNotNull();
+        assertThat(captured.get().getHeaders().getFirst(TenantResolutionWebFilter.TENANT_HEADER)).isNull();
+    }
+
+    /** A resolver answer wins over the subdomain guess — that is the point of resolution. */
+    @Test
+    void a_resolved_tenant_overrides_the_subdomain_guess() {
+        var resolver = new TenantResolver(
+                org.springframework.web.reactive.function.client.WebClient.create("http://unused"),
+                org.springframework.web.reactive.function.client.WebClient.create("http://unused"),
+                "id", "secret", java.time.Duration.ofMinutes(5), java.time.Duration.ofSeconds(30)) {
+            @Override
+            public reactor.core.publisher.Mono<java.util.Optional<String>> resolve(String host) {
+                return reactor.core.publisher.Mono.just(java.util.Optional.of("acme"));
+            }
+        };
+        var filter = new TenantResolutionWebFilter(List.of(), true, providerOf(resolver));
+        // Subdomain derivation would say "login"; tenant-service says "acme".
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/x").header("Host", "login.acme.com"));
+
+        var captured = new java.util.concurrent.atomic.AtomicReference<ServerHttpRequest>();
+        filter.filter(exchange, ex -> {
+            captured.set(ex.getRequest());
+            return reactor.core.publisher.Mono.empty();
+        }).block();
+
+        assertThat(captured.get().getHeaders().getFirst(TenantResolutionWebFilter.TENANT_HEADER))
+                .isEqualTo("acme");
+    }
+
+    private static org.springframework.beans.factory.ObjectProvider<TenantResolver> providerOf(
+            TenantResolver resolver) {
+        return new org.springframework.beans.factory.ObjectProvider<>() {
+            @Override
+            public TenantResolver getObject() {
+                return resolver;
+            }
+
+            @Override
+            public TenantResolver getObject(Object... args) {
+                return resolver;
+            }
+
+            @Override
+            public TenantResolver getIfAvailable() {
+                return resolver;
+            }
+
+            @Override
+            public TenantResolver getIfUnique() {
+                return resolver;
+            }
+        };
+    }
 }

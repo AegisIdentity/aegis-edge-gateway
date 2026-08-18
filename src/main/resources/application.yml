@@ -56,6 +56,19 @@ aegis:
     allowed-hosts: ${AEGIS_ALLOWED_HOSTS:}
     # M-edge-5: strip inbound X-Forwarded-*/Forwarded at the edge (gateway is the first trusted hop).
     strip-forwarded-headers: ${AEGIS_STRIP_FORWARDED:true}
+    # Host -> tenant resolution via tenant-service. Off by default so the gateway boots with no
+    # dependency on tenant-service or a client secret (local dev, context-load test); when off, the
+    # tenant is guessed from the first DNS label, which CANNOT resolve white-label custom domains
+    # like login.acme.com. Enable in any environment that sells custom sign-in domains.
+    tenant-resolution:
+      enabled: ${AEGIS_TENANT_RESOLUTION_ENABLED:false}
+      client-id: ${AEGIS_GATEWAY_CLIENT_ID:aegis-gateway}
+      # No default: when resolution is enabled the secret must be supplied explicitly.
+      client-secret: ${AEGIS_GATEWAY_CLIENT_SECRET:}
+      positive-ttl: ${AEGIS_TENANT_RESOLUTION_TTL:PT5M}
+      # Shorter than the positive TTL on purpose: unknown hosts must not become a cheap amplifier
+      # against tenant-service, but a newly-verified domain should start working quickly.
+      negative-ttl: ${AEGIS_TENANT_RESOLUTION_NEG_TTL:PT30S}
   routes:
     # L-edge-3: env-overridable downstream URIs. Prod should set https:// values and rely on
     # service-mesh mTLS for the gateway->service hop; the http://localhost defaults are local-dev only.

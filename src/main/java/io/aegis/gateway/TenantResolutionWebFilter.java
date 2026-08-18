@@ -16,10 +16,18 @@ import reactor.core.publisher.Mono;
  * header, after <em>stripping</em> any client-supplied value (the edge must never trust an inbound
  * tenant header — see ARCHITECTURE.md §5.1 / §8).
  *
- * <p>v1 uses a simple subdomain rule ({@code acme.aegis.io -> acme}). Production resolves the host via
- * {@code tenant-service} ({@code /api/v1/tenants:resolve}) with a cached lookup; that call is the
- * documented next step. Implemented as a plain WebFlux {@link WebFilter} (framework-stable) rather
- * than a gateway-specific filter.
+ * <p><b>Resolution order.</b> When {@code aegis.gateway.tenant-resolution.enabled} is set, the host is
+ * resolved against {@code tenant-service} via {@link TenantResolver} (cached), which is the only way
+ * a white-label custom domain can work: nothing in {@code login.acme.com} identifies the tenant, and
+ * the subdomain rule would confidently answer {@code login} — the wrong tenant. The subdomain rule
+ * ({@code acme.aegis.io -> acme}) remains the fallback when resolution is disabled or returns
+ * nothing. Implemented as a plain WebFlux {@link WebFilter} (framework-stable) rather than a
+ * gateway-specific filter.
+ *
+ * <p>The tenant header is a routing/context hint only — every downstream service re-derives the
+ * acting tenant from the JWT rather than trusting it — so a failed lookup degrades routing but
+ * cannot grant cross-tenant access. The control that stops a forged {@code Host} is the allowlist
+ * below.
  *
  * <p>M-edge-4: because the client-controlled {@code Host} drives tenant resolution AND the AS's issuer
  * reconstruction (via {@code preserveHostHeader}), a forged Host is a real threat. When
@@ -45,12 +53,49 @@ public class TenantResolutionWebFilter implements WebFilter {
 
     private final List<String> allowedHosts;
     private final boolean stripForwardedHeaders;
+    private final org.springframework.beans.factory.ObjectProvider<TenantResolver> tenantResolver;
 
+    /**
+     * Subdomain-derivation only — no tenant-service lookup. Used by tests and by any deployment that
+     * has not enabled {@code aegis.gateway.tenant-resolution}.
+     */
+    TenantResolutionWebFilter(List<String> allowedHosts, boolean stripForwardedHeaders) {
+        this(allowedHosts, stripForwardedHeaders, noResolver());
+    }
+
+    private static org.springframework.beans.factory.ObjectProvider<TenantResolver> noResolver() {
+        return new org.springframework.beans.factory.ObjectProvider<>() {
+            @Override
+            public TenantResolver getObject() {
+                throw new IllegalStateException("no TenantResolver configured");
+            }
+
+            @Override
+            public TenantResolver getObject(Object... args) {
+                return getObject();
+            }
+
+            @Override
+            public TenantResolver getIfAvailable() {
+                return null;
+            }
+
+            @Override
+            public TenantResolver getIfUnique() {
+                return null;
+            }
+        };
+    }
+
+    // Two constructors exist, so the injectable one must be marked explicitly.
+    @org.springframework.beans.factory.annotation.Autowired
     public TenantResolutionWebFilter(
             @Value("${aegis.gateway.allowed-hosts:}") List<String> allowedHosts,
-            @Value("${aegis.gateway.strip-forwarded-headers:true}") boolean stripForwardedHeaders) {
+            @Value("${aegis.gateway.strip-forwarded-headers:true}") boolean stripForwardedHeaders,
+            org.springframework.beans.factory.ObjectProvider<TenantResolver> tenantResolver) {
         this.allowedHosts = allowedHosts == null ? List.of() : allowedHosts;
         this.stripForwardedHeaders = stripForwardedHeaders;
+        this.tenantResolver = tenantResolver;
     }
 
     @Override
@@ -64,8 +109,27 @@ public class TenantResolutionWebFilter implements WebFilter {
             return exchange.getResponse().setComplete();
         }
 
-        String tenant = deriveTenant(host);
+        // Ask tenant-service which tenant owns this host (the only component that knows, and the
+        // only way custom domains like login.acme.com can resolve at all). Fall back to the
+        // subdomain guess when no resolver is configured or the lookup yields nothing.
+        TenantResolver resolver = this.tenantResolver.getIfAvailable();
+        Mono<String> resolved = (resolver == null)
+                ? Mono.justOrEmpty(deriveTenant(host))
+                // flatMap + justOrEmpty, NOT map: the fallback legitimately yields null for hosts
+                // with no derivable tenant (localhost, an apex domain), and Reactor treats a null
+                // from map() as a fatal NullPointerException rather than an empty signal — which
+                // took down every request including the health probe.
+                : resolver.resolve(host)
+                        .flatMap(maybe -> Mono.justOrEmpty(maybe.orElseGet(() -> deriveTenant(host))));
 
+        return resolved
+                .defaultIfEmpty("")
+                .flatMap(tenant -> chain.filter(exchange.mutate()
+                        .request(withTenantHeader(exchange, tenant.isBlank() ? null : tenant)).build()));
+    }
+
+    /** Strip anything client-supplied, then inject the tenant we derived ourselves. */
+    private ServerHttpRequest withTenantHeader(ServerWebExchange exchange, String tenant) {
         ServerHttpRequest.Builder mutated = exchange.getRequest().mutate()
                 .headers(headers -> {
                     headers.remove(TENANT_HEADER); // never trust client-supplied
@@ -76,7 +140,7 @@ public class TenantResolutionWebFilter implements WebFilter {
         if (tenant != null) {
             mutated.header(TENANT_HEADER, tenant);
         }
-        return chain.filter(exchange.mutate().request(mutated.build()).build());
+        return mutated.build();
     }
 
     private boolean isActuator(ServerWebExchange exchange) {
