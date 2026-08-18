@@ -167,6 +167,44 @@ class TenantResolutionWebFilterTest {
                 .isEqualTo("acme");
     }
 
+    @Test
+    void a_forged_host_rejection_emits_an_edge_audit_event() {
+        var captured = new java.util.concurrent.atomic.AtomicReference<io.aegis.commons.audit.AuditEvent>();
+        io.aegis.commons.audit.AuditEventPublisher publisher = captured::set;
+        // allowlist set to a known base domain -> "evil.example" is rejected
+        var filter = new TenantResolutionWebFilter(List.of("aegis.io"), true, noResolver(), publisher);
+
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/x").header("Host", "evil.example"));
+        filter.filter(exchange, ex -> reactor.core.publisher.Mono.empty()).block();
+
+        assertThat(exchange.getResponse().getStatusCode())
+                .isEqualTo(org.springframework.http.HttpStatus.NOT_FOUND);
+        io.aegis.commons.audit.AuditEvent event = captured.get();
+        assertThat(event).isNotNull();
+        assertThat(event.type()).isEqualTo("edge");
+        assertThat(event.action()).isEqualTo("edge.host.rejected");
+        assertThat(event.outcome()).isEqualTo(io.aegis.commons.audit.AuditOutcome.DENIED);
+        assertThat(event.target()).isEqualTo("evil.example");
+    }
+
+    @Test
+    void an_allowed_host_emits_no_rejection_event() {
+        var captured = new java.util.concurrent.atomic.AtomicReference<io.aegis.commons.audit.AuditEvent>();
+        var filter = new TenantResolutionWebFilter(List.of("aegis.io"), true, noResolver(),
+                (io.aegis.commons.audit.AuditEventPublisher) captured::set);
+
+        var exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/x").header("Host", "acme.aegis.io"));
+        filter.filter(exchange, ex -> reactor.core.publisher.Mono.empty()).block();
+
+        assertThat(captured.get()).isNull(); // allowed host -> no rejection event
+    }
+
+    private static org.springframework.beans.factory.ObjectProvider<TenantResolver> noResolver() {
+        return providerOf(null);
+    }
+
     private static org.springframework.beans.factory.ObjectProvider<TenantResolver> providerOf(
             TenantResolver resolver) {
         return new org.springframework.beans.factory.ObjectProvider<>() {

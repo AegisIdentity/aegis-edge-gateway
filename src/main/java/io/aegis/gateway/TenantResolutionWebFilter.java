@@ -54,10 +54,11 @@ public class TenantResolutionWebFilter implements WebFilter {
     private final List<String> allowedHosts;
     private final boolean stripForwardedHeaders;
     private final org.springframework.beans.factory.ObjectProvider<TenantResolver> tenantResolver;
+    private final io.aegis.commons.audit.AuditEventPublisher auditPublisher;
 
     /**
-     * Subdomain-derivation only — no tenant-service lookup. Used by tests and by any deployment that
-     * has not enabled {@code aegis.gateway.tenant-resolution}.
+     * Subdomain-derivation only — no tenant-service lookup, no audit. Used by tests and by any
+     * deployment that has not enabled {@code aegis.gateway.tenant-resolution}.
      */
     TenantResolutionWebFilter(List<String> allowedHosts, boolean stripForwardedHeaders) {
         this(allowedHosts, stripForwardedHeaders, noResolver());
@@ -87,15 +88,35 @@ public class TenantResolutionWebFilter implements WebFilter {
         };
     }
 
-    // Two constructors exist, so the injectable one must be marked explicitly.
+    /** Resolver but no audit — used by tests that exercise the resolver path without Kafka. */
+    TenantResolutionWebFilter(List<String> allowedHosts, boolean stripForwardedHeaders,
+            org.springframework.beans.factory.ObjectProvider<TenantResolver> tenantResolver) {
+        this(allowedHosts, stripForwardedHeaders, tenantResolver, (io.aegis.commons.audit.AuditEventPublisher) null);
+    }
+
+    /** Test/direct constructor — resolver provider + a resolved audit publisher (may be null). */
+    TenantResolutionWebFilter(List<String> allowedHosts, boolean stripForwardedHeaders,
+            org.springframework.beans.factory.ObjectProvider<TenantResolver> tenantResolver,
+            io.aegis.commons.audit.AuditEventPublisher auditPublisher) {
+        this.allowedHosts = allowedHosts == null ? List.of() : allowedHosts;
+        this.stripForwardedHeaders = stripForwardedHeaders;
+        this.tenantResolver = tenantResolver;
+        this.auditPublisher = auditPublisher;
+    }
+
+    // Spring injects this one. It takes ObjectProviders so both collaborators are optional; the
+    // (List, boolean, ObjectProvider, AuditEventPublisher) test constructor above is a distinct
+    // signature (a resolved publisher, not a provider), so there is no overload ambiguity except for
+    // a bare null — which the delegating constructors always cast.
     @org.springframework.beans.factory.annotation.Autowired
     public TenantResolutionWebFilter(
             @Value("${aegis.gateway.allowed-hosts:}") List<String> allowedHosts,
             @Value("${aegis.gateway.strip-forwarded-headers:true}") boolean stripForwardedHeaders,
-            org.springframework.beans.factory.ObjectProvider<TenantResolver> tenantResolver) {
-        this.allowedHosts = allowedHosts == null ? List.of() : allowedHosts;
-        this.stripForwardedHeaders = stripForwardedHeaders;
-        this.tenantResolver = tenantResolver;
+            org.springframework.beans.factory.ObjectProvider<TenantResolver> tenantResolver,
+            org.springframework.beans.factory.ObjectProvider<
+                    io.aegis.commons.audit.AuditEventPublisher> auditPublisher) {
+        this(allowedHosts, stripForwardedHeaders, tenantResolver,
+                auditPublisher == null ? null : auditPublisher.getIfAvailable());
     }
 
     @Override
@@ -105,6 +126,7 @@ public class TenantResolutionWebFilter implements WebFilter {
         // M-edge-4: reject forged/unknown hosts (actuator probes are exempt — they hit the pod IP with
         // a Host the allowlist won't contain).
         if (!isActuator(exchange) && !hostAllowed(host)) {
+            auditForgedHost(exchange, host);
             exchange.getResponse().setStatusCode(HttpStatus.NOT_FOUND);
             return exchange.getResponse().setComplete();
         }
@@ -145,6 +167,28 @@ public class TenantResolutionWebFilter implements WebFilter {
 
     private boolean isActuator(ServerWebExchange exchange) {
         return exchange.getRequest().getPath().value().startsWith("/actuator");
+    }
+
+    /**
+     * Emit an edge-security event when a forged/unknown Host is rejected — a genuine attack signal
+     * (someone trying to drive tenant/issuer resolution with a Host they don't own). Built explicitly
+     * (not via {@code AuditEvent.of}) because that reads a {@code ThreadLocal} tenant/MDC that is not
+     * meaningful on the reactive edge. Best-effort and null-safe; never affects the response.
+     */
+    private void auditForgedHost(ServerWebExchange exchange, String host) {
+        if (auditPublisher == null) {
+            return;
+        }
+        try {
+            String remote = exchange.getRequest().getRemoteAddress() == null ? null
+                    : String.valueOf(exchange.getRequest().getRemoteAddress().getAddress());
+            auditPublisher.publish(new io.aegis.commons.audit.AuditEvent(
+                    "edge", "edge.host.rejected", io.aegis.commons.audit.AuditOutcome.DENIED,
+                    null, "anonymous", host, null, java.time.Instant.now(),
+                    remote == null ? java.util.Map.of() : java.util.Map.of("remoteAddr", remote)));
+        } catch (RuntimeException ignored) {
+            // audit must never break request handling
+        }
     }
 
     /** True if no allowlist is configured, or the host exactly matches or is a subdomain of an entry. */
