@@ -38,6 +38,8 @@ public class GatewayRoutesConfig {
                                     @Value("${aegis.routes.mfa:http://localhost:9103}") String mfa,
                                     @Value("${aegis.routes.admin-api:http://localhost:9107}") String adminApi,
                                     @Value("${aegis.routes.scim:http://localhost:9106}") String scim,
+                                    @Value("${aegis.routes.agent-registry:http://localhost:9108}") String agentRegistry,
+                                    @Value("${aegis.routes.threat-analysis:http://localhost:9109}") String threatAnalysis,
                                     @Value("${aegis.ratelimit.enabled:false}") boolean rateLimitEnabled,
                                     ObjectProvider<RateLimiter> rateLimiters,
                                     ObjectProvider<KeyResolver> keyResolvers) {
@@ -80,13 +82,25 @@ public class GatewayRoutesConfig {
                         .path("/api/v1/users/**", "/api/v1/users:authenticate", "/api/v1/groups/**",
                                 "/api/v1/onboarding", "/api/v1/signup", "/api/v1/signup-policy",
                                 "/api/v1/auth-policy", "/api/v1/branding", "/api/v1/branding/**",
-                                "/api/v1/system-log")
+                                "/api/v1/system-log",
+                                // Agent principals are directory objects, like users and groups.
+                                "/api/v1/agents", "/api/v1/agents/**")
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(identity))
                 .route("mfa-webauthn-service", r -> r
                         .path("/api/v1/mfa/**")
                         .filters(f -> { f.removeRequestHeader("Origin"); rateLimit.accept(f); return f; })
                         .uri(mfa))
+                // ORDER MATTERS. The Vault broker lives on admin-api at
+                // /api/v1/tenants/{id}/vault/**, which is a SUB-PATH of the tenant-service route
+                // below. Spring Cloud Gateway takes the first matching route, so this must come
+                // first — otherwise every Key/Secrets-Management call is proxied to tenant-service,
+                // which has no such endpoint, and the feature 404s in a way that looks like a bug in
+                // admin-api rather than a routing order problem.
+                .route("admin-api-vault-broker", r -> r
+                        .path("/api/v1/tenants/*/vault/**")
+                        .filters(f -> f.removeRequestHeader("Origin"))
+                        .uri(adminApi))
                 .route("tenant-service", r -> r
                         .path("/api/v1/tenants/**", "/api/v1/tenants:resolve",
                                 "/api/v1/domains/**", "/api/v1/domains")
@@ -97,9 +111,19 @@ public class GatewayRoutesConfig {
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(social))
                 .route("admin-api-service", r -> r
-                        .path("/api/v1/admin/**")
+                        .path("/api/v1/admin/**",
+                                // Per-tool consent (ADR-0013) is a PDP concern, not a directory one.
+                                "/api/v1/agent-consents", "/api/v1/agent-consents/**")
                         .filters(f -> f.removeRequestHeader("Origin"))
                         .uri(adminApi))
+                .route("agent-registry-service", r -> r
+                        .path("/api/v1/registry/**")
+                        .filters(f -> f.removeRequestHeader("Origin"))
+                        .uri(agentRegistry))
+                .route("threat-analysis-service", r -> r
+                        .path("/api/v1/risk/**")
+                        .filters(f -> f.removeRequestHeader("Origin"))
+                        .uri(threatAnalysis))
                 .route("scim-provisioning-service", r -> r
                         .path("/scim/v2/**", "/api/v1/provisioning/**")
                         .filters(f -> f.removeRequestHeader("Origin"))

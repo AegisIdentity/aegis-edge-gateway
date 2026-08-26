@@ -79,6 +79,8 @@ aegis:
     mfa: ${MFA_URI:http://localhost:9103}
     admin-api: ${ADMIN_API_URI:http://localhost:9107}
     scim: ${SCIM_URI:http://localhost:9106}
+    agent-registry: ${AGENT_REGISTRY_URI:http://localhost:9108}
+    threat-analysis: ${THREAT_ANALYSIS_URI:http://localhost:9109}
 
 management:
   endpoints:
