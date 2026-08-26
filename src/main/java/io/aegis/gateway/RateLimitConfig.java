@@ -38,6 +38,20 @@ public class RateLimitConfig {
      * {@link TenantResolutionWebFilter} (client-supplied values are stripped there); the IP is the
      * gateway's own remote-address view after inbound {@code X-Forwarded-*} is sanitized.
      */
+    /**
+     * Bucket key for MCP/agent traffic: tenant + agent + tool (see {@link McpQuotaKeyResolver}).
+     *
+     * <p>Registered under its own bean name rather than replacing {@link #tenantIpKeyResolver()},
+     * because the two answer different questions. Credential-facing routes want to blunt one abusive
+     * <em>source</em>, so tenant+IP is right there. Agent routes want to contain one runaway
+     * <em>agent</em>, which is legitimate traffic from a legitimate source and would look entirely
+     * normal to an IP-keyed limiter. A route selects the resolver it needs by bean name.
+     */
+    @Bean
+    public KeyResolver mcpAgentKeyResolver() {
+        return new McpQuotaKeyResolver();
+    }
+
     @Bean
     public KeyResolver tenantIpKeyResolver() {
         return exchange -> {
